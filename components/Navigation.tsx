@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, ShoppingCart, Package, FileText,
   Truck, Users, BookOpen, LogOut, ShoppingBag
@@ -31,10 +30,9 @@ const grupos = [
 export default function Navigation() {
   const pathname = usePathname()
   const router = useRouter()
-  const supabase = createClient()
 
   async function handleLogout() {
-    await supabase.auth.signOut()
+    await fetch('/api/auth', { method: 'DELETE' })
     router.push('/login')
     router.refresh()
   }
