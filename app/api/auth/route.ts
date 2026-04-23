@@ -13,14 +13,17 @@ function makeToken(email: string): string {
 export async function POST(req: NextRequest) {
   const { email, password } = await req.json()
 
+  const adminEmail = (process.env.ADMIN_EMAIL || '').trim()
+  const adminPassword = (process.env.ADMIN_PASSWORD || '').trim()
+
   if (
-    email !== process.env.ADMIN_EMAIL ||
-    password !== process.env.ADMIN_PASSWORD
+    email.trim() !== adminEmail ||
+    password.trim() !== adminPassword
   ) {
     return NextResponse.json({ error: 'Credenciais inválidas' }, { status: 401 })
   }
 
-  const token = makeToken(email)
+  const token = makeToken(adminEmail)
   const res = NextResponse.json({ ok: true })
   res.cookies.set(COOKIE, token, {
     httpOnly: true,

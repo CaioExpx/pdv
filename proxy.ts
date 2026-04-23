@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 const COOKIE = 'pdv_session'
-const SECRET = process.env.AUTH_SECRET!
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL!
+const SECRET = (process.env.AUTH_SECRET || '').trim()
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim()
 
 async function verifySession(token: string): Promise<boolean> {
   if (!token || !SECRET || !ADMIN_EMAIL) return false
