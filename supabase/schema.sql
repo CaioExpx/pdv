@@ -156,6 +156,10 @@ ALTER TABLE pagamentos_fiado ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Auth categorias" ON categorias FOR ALL TO authenticated USING (true);
 CREATE POLICY "Auth fornecedores" ON fornecedores FOR ALL TO authenticated USING (true);
 CREATE POLICY "Auth produtos" ON produtos FOR ALL TO authenticated USING (true);
+CREATE POLICY "Anon_insert_produtos" ON produtos FOR INSERT TO anon WITH CHECK (true);
+CREATE POLICY "Anon_select_produtos" ON produtos FOR SELECT TO anon USING (true);
+CREATE POLICY "Anon_update_produtos" ON produtos FOR UPDATE TO anon USING (true);
+CREATE POLICY "Anon_delete_produtos" ON produtos FOR DELETE TO anon USING (true);
 CREATE POLICY "Auth clientes" ON clientes FOR ALL TO authenticated USING (true);
 CREATE POLICY "Auth caixas" ON caixas FOR ALL TO authenticated USING (true);
 CREATE POLICY "Auth vendas" ON vendas FOR ALL TO authenticated USING (true);
@@ -193,7 +197,6 @@ $$;
 
 -- ============================================
 -- Função: resumo fiado por cliente
--- ============================================
 CREATE OR REPLACE FUNCTION resumo_fiado_cliente(p_cliente_id UUID)
 RETURNS TABLE(total_aberto DECIMAL, total_pago DECIMAL, qtd_abertos INTEGER)
 LANGUAGE plpgsql
@@ -207,5 +210,42 @@ BEGIN
     COUNT(*)::INTEGER
   FROM fiado
   WHERE cliente_id = p_cliente_id AND status IN ('aberto', 'pago_parcial');
+END;
+$$;
+
+-- Função: importar produtos em lote (bypass RLS)
+CREATE OR REPLACE FUNCTION importar_produtos(p_produtos JSONB)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  qtd INTEGER := 0;
+  p JSONB;
+BEGIN
+  FOR p IN SELECT * FROM jsonb_array_elements(p_produtos)
+  LOOP
+    INSERT INTO produtos (
+      nome,
+      preco,
+      preco_custo,
+      estoque,
+      estoque_minimo,
+      codigo_barras,
+      unidade,
+      ativo
+    ) VALUES (
+      p->>'nome',
+      (p->>'preco')::DECIMAL,
+      (p->>'preco_custo')::DECIMAL,
+      (p->>'estoque')::INTEGER,
+      (p->>'estoque_minimo')::INTEGER,
+      p->>'codigo_barras',
+      COALESCE(p->>'unidade', 'UN'),
+      COALESCE(p->>'ativo', true)::BOOLEAN
+    );
+    qtd := qtd + 1;
+  END LOOP;
+  RETURN qtd;
 END;
 $$;
