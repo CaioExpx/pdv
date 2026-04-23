@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, ShoppingCart, Package, FileText,
-  Truck, Users, BookOpen, LogOut, ShoppingBag
+  Truck, Users, BookOpen, LogOut, ShoppingBag, Upload
 } from 'lucide-react'
 
 const grupos = [
@@ -23,6 +23,7 @@ const grupos = [
       { href: '/produtos', label: 'Produtos', icon: Package },
       { href: '/fornecedores', label: 'Fornecedores', icon: Truck },
       { href: '/clientes', label: 'Clientes', icon: Users },
+      { href: '/importar', label: 'Importar CSV', icon: Upload },
     ],
   },
 ]
