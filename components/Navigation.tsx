@@ -95,7 +95,7 @@ export default function Navigation() {
           <LogOut className="w-4 h-4" />
           Sair
         </button>
-        <span className="text-xs text-slate-600 font-mono">v{VERSION}</span>
+        <span className="text-xs text-yellow-400 font-mono font-bold">v{VERSION}</span>
       </div>
     </aside>
   )
