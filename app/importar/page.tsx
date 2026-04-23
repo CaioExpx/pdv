@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Upload, FileText, CheckCircle, AlertCircle, Loader2, X } from 'lucide-react'
+import { Upload, FileText, CheckCircle, AlertCircle, Loader2, X, FileSearch } from 'lucide-react'
 
 type Step = 'upload' | 'preview' | 'importing' | 'done'
 
@@ -10,7 +10,7 @@ interface ProdutoRow {
   nome: string
   codigo_barras: string
   preco_custo: number
-  preco_venda: number
+  preco: number
   estoque: number
   estoque_minimo: number
 }
@@ -54,23 +54,91 @@ function processCSV(text: string): ProdutoRow[] {
 
     const codigoInterno = col[0]?.trim()
     const codigoBarras = col[9]?.trim()
-    const barcode = codigoBarras && codigoBarras !== codigoInterno && codigoBarras.length > 4
-      ? codigoBarras
-      : codigoInterno && codigoInterno.length > 4
-        ? codigoInterno
-        : ''
-
-    const estoque = parseInt(col[4]) || 0
+    const barcode =
+      codigoBarras && codigoBarras !== codigoInterno && codigoBarras.length > 4
+        ? codigoBarras
+        : codigoInterno && codigoInterno.length > 4
+          ? codigoInterno
+          : ''
 
     rows.push({
       nome,
       codigo_barras: barcode,
       preco_custo: parsePrice(col[2] || '0'),
-      preco_venda: parsePrice(col[3] || '0'),
-      estoque: Math.max(0, estoque),
+      preco: parsePrice(col[3] || '0'),
+      estoque: Math.max(0, parseInt(col[4]) || 0),
       estoque_minimo: parseInt(col[5]) || 0,
     })
   }
+  return rows
+}
+
+async function extractTextFromPDF(buffer: ArrayBuffer): Promise<string> {
+  const pdfjsLib = await import('pdfjs-dist')
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise
+  let allText = ''
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum)
+    const content = await page.getTextContent()
+    const items = content.items as Array<{ str: string; transform: number[] }>
+
+    // Group text items by Y position to reconstruct rows
+    const byY: Record<number, Array<{ str: string; x: number }>> = {}
+    for (const item of items) {
+      const y = Math.round(item.transform[5])
+      if (!byY[y]) byY[y] = []
+      byY[y].push({ str: item.str, x: item.transform[4] })
+    }
+
+    // Sort Y positions descending (top to bottom), items by X ascending
+    const sortedYs = Object.keys(byY).map(Number).sort((a, b) => b - a)
+    for (const y of sortedYs) {
+      const lineItems = byY[y].sort((a, b) => a.x - b.x)
+      allText += lineItems.map((i) => i.str).join('\t') + '\n'
+    }
+  }
+  return allText
+}
+
+function processPDFText(text: string): ProdutoRow[] {
+  const rows: ProdutoRow[] = []
+  const lines = text.split('\n').filter((l) => l.trim())
+
+  for (const line of lines) {
+    // Skip header lines
+    if (/código|descrição|preço|produto|nome|valor|total/i.test(line) && !/R\$/.test(line)) continue
+
+    // Must have a price to be a product line
+    const priceMatches = [...line.matchAll(/R\$\s*([\d.,]+)/gi)]
+    if (priceMatches.length === 0) continue
+
+    // Last price = venda, second-to-last = custo (if two prices)
+    const precoVenda = parsePrice(priceMatches[priceMatches.length - 1][0])
+    const precoCusto = priceMatches.length >= 2 ? parsePrice(priceMatches[priceMatches.length - 2][0]) : 0
+
+    if (precoVenda <= 0) continue
+
+    // Barcode: long digit sequence (8-14 digits)
+    const barcodeMatch = line.match(/\b(\d{8,14})\b/)
+    const barcode = barcodeMatch?.[1] || ''
+
+    // Name: strip barcodes, prices, numbers-only tokens, then take what's left
+    const nome = line
+      .replace(/R\$\s*[\d.,]+/gi, '')
+      .replace(/\b\d{8,14}\b/g, '')
+      .replace(/\t/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/^\s*\d+[\s.)]?\s*/, '') // strip leading code/index
+      .trim()
+
+    if (nome.length < 3) continue
+
+    rows.push({ nome, codigo_barras: barcode, preco_custo: precoCusto, preco: precoVenda, estoque: 0, estoque_minimo: 0 })
+  }
+
   return rows
 }
 
@@ -78,19 +146,35 @@ export default function ImportarPage() {
   const [step, setStep] = useState<Step>('upload')
   const [produtos, setProdutos] = useState<ProdutoRow[]>([])
   const [fileName, setFileName] = useState('')
+  const [fileType, setFileType] = useState<'csv' | 'pdf'>('csv')
   const [progresso, setProgresso] = useState(0)
   const [total, setTotal] = useState(0)
   const [erros, setErros] = useState(0)
   const [importados, setImportados] = useState(0)
   const [dragging, setDragging] = useState(false)
+  const [processando, setProcessando] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
 
-  const processFile = useCallback((file: File) => {
+  const processFile = useCallback(async (file: File) => {
     setFileName(file.name)
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const buffer = e.target?.result as ArrayBuffer
+    setProcessando(true)
+
+    const buffer = await file.arrayBuffer()
+
+    if (file.name.toLowerCase().endsWith('.pdf')) {
+      setFileType('pdf')
+      try {
+        const text = await extractTextFromPDF(buffer)
+        const rows = processPDFText(text)
+        setProdutos(rows)
+        setStep('preview')
+      } catch (e) {
+        console.error(e)
+        alert('Não foi possível ler o PDF. Tente exportar como CSV.')
+      }
+    } else {
+      setFileType('csv')
       let text: string
       try {
         text = new TextDecoder('utf-8', { fatal: true }).decode(buffer)
@@ -101,7 +185,8 @@ export default function ImportarPage() {
       setProdutos(rows)
       setStep('preview')
     }
-    reader.readAsArrayBuffer(file)
+
+    setProcessando(false)
   }, [])
 
   function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
@@ -113,7 +198,7 @@ export default function ImportarPage() {
     e.preventDefault()
     setDragging(false)
     const file = e.dataTransfer.files?.[0]
-    if (file && file.name.endsWith('.csv')) processFile(file)
+    if (file) processFile(file)
   }
 
   async function iniciarImportacao() {
@@ -131,30 +216,47 @@ export default function ImportarPage() {
       const lote = produtos.slice(i, i + BATCH).map((p) => ({
         nome: p.nome,
         codigo_barras: p.codigo_barras || null,
-        preco_custo: p.preco_custo,
-        preco_venda: p.preco_venda,
+        preco_custo: p.preco_custo || null,
+        preco: p.preco,
         estoque: p.estoque,
         estoque_minimo: p.estoque_minimo,
+        unidade: 'UN',
         ativo: true,
       }))
 
-      const { error } = await supabase.from('produtos').upsert(lote, {
-        onConflict: 'codigo_barras',
-        ignoreDuplicates: false,
-      })
+      // Separate products with and without barcode
+      const comBarcode = lote.filter((p) => p.codigo_barras)
+      const semBarcode = lote.filter((p) => !p.codigo_barras)
 
-      if (error) {
-        // fallback: insert one by one
-        for (const prod of lote) {
-          const { error: e2 } = await supabase.from('produtos').upsert([prod], {
-            onConflict: 'codigo_barras',
-            ignoreDuplicates: false,
-          })
-          if (e2) errosCount++
-          else importadosCount++
+      // Upsert products with barcode (update if barcode already exists)
+      if (comBarcode.length > 0) {
+        const { error } = await supabase.from('produtos').upsert(comBarcode, {
+          onConflict: 'codigo_barras',
+          ignoreDuplicates: false,
+        })
+        if (error) {
+          for (const prod of comBarcode) {
+            const { error: e2 } = await supabase.from('produtos').insert([prod])
+            if (e2) errosCount++
+            else importadosCount++
+          }
+        } else {
+          importadosCount += comBarcode.length
         }
-      } else {
-        importadosCount += lote.length
+      }
+
+      // Insert products without barcode directly
+      if (semBarcode.length > 0) {
+        const { error } = await supabase.from('produtos').insert(semBarcode)
+        if (error) {
+          for (const prod of semBarcode) {
+            const { error: e2 } = await supabase.from('produtos').insert([prod])
+            if (e2) errosCount++
+            else importadosCount++
+          }
+        } else {
+          importadosCount += semBarcode.length
+        }
       }
 
       setProgresso(Math.min(i + BATCH, produtos.length))
@@ -165,6 +267,15 @@ export default function ImportarPage() {
     setStep('done')
   }
 
+  function resetar() {
+    setStep('upload')
+    setProdutos([])
+    setFileName('')
+    setProgresso(0)
+    setImportados(0)
+    setErros(0)
+  }
+
   const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
   if (step === 'upload') {
@@ -172,7 +283,7 @@ export default function ImportarPage() {
       <div className="p-4 md:p-6 space-y-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Importar Produtos</h1>
-          <p className="text-slate-500 text-sm">Importe produtos de um arquivo CSV</p>
+          <p className="text-slate-500 text-sm">Importe sua lista de produtos via CSV ou PDF</p>
         </div>
 
         <div
@@ -184,19 +295,43 @@ export default function ImportarPage() {
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
         >
-          <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
-            <Upload className="w-8 h-8 text-indigo-500" />
-          </div>
-          <p className="text-sm font-semibold text-slate-700 mb-1">Clique ou arraste o arquivo CSV</p>
-          <p className="text-xs text-slate-400">Exportado do sistema de gestão (máx. 10MB)</p>
-          <input ref={inputRef} type="file" accept=".csv" className="hidden" onChange={handleFileInput} />
+          {processando ? (
+            <>
+              <Loader2 className="w-10 h-10 text-indigo-500 animate-spin mb-3" />
+              <p className="text-sm font-semibold text-slate-700">Lendo arquivo...</p>
+            </>
+          ) : (
+            <>
+              <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
+                <Upload className="w-8 h-8 text-indigo-500" />
+              </div>
+              <p className="text-sm font-semibold text-slate-700 mb-1">Clique ou arraste o arquivo aqui</p>
+              <p className="text-xs text-slate-400">Aceita CSV ou PDF exportado do seu sistema</p>
+            </>
+          )}
+          <input ref={inputRef} type="file" accept=".csv,.pdf" className="hidden" onChange={handleFileInput} />
         </div>
 
-        <div className="bg-slate-50 rounded-2xl p-4 text-xs text-slate-500 space-y-1.5">
-          <p className="font-semibold text-slate-700 mb-2">Formato esperado (colunas):</p>
-          <p>0 — Código interno · 1 — Descrição · 2 — Preço de Custo · 3 — Preço de Venda</p>
-          <p>4 — Estoque · 5 — Estoque mínimo · 9 — Código de Barras</p>
-          <p className="mt-2 text-slate-400">Produtos com código de barras duplicado serão atualizados.</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="bg-slate-50 rounded-2xl p-4 text-xs text-slate-500 space-y-1">
+            <div className="flex items-center gap-2 mb-2">
+              <FileText className="w-4 h-4 text-indigo-500" />
+              <span className="font-semibold text-slate-700">Formato CSV</span>
+            </div>
+            <p>Col 0 — Código · Col 1 — Descrição</p>
+            <p>Col 2 — Custo · Col 3 — Venda</p>
+            <p>Col 4 — Estoque · Col 9 — Cód. Barras</p>
+            <p className="text-slate-400 mt-1">Duplicatas por código de barras serão atualizadas.</p>
+          </div>
+          <div className="bg-slate-50 rounded-2xl p-4 text-xs text-slate-500 space-y-1">
+            <div className="flex items-center gap-2 mb-2">
+              <FileSearch className="w-4 h-4 text-indigo-500" />
+              <span className="font-semibold text-slate-700">Formato PDF</span>
+            </div>
+            <p>O sistema vai tentar ler a tabela de produtos.</p>
+            <p>Identifica nome, preço e código de barras automaticamente.</p>
+            <p className="text-slate-400 mt-1">Recomendado usar CSV para maior precisão.</p>
+          </div>
         </div>
       </div>
     )
@@ -210,58 +345,65 @@ export default function ImportarPage() {
           <div>
             <h1 className="text-xl font-bold text-slate-900">Pré-visualização</h1>
             <p className="text-slate-500 text-sm">
-              <FileText className="inline w-3.5 h-3.5 mr-1" />{fileName} · {produtos.length.toLocaleString('pt-BR')} produto(s) encontrado(s)
+              {fileType === 'pdf' ? '📄' : '📊'} {fileName} · {produtos.length.toLocaleString('pt-BR')} produto(s) encontrado(s)
             </p>
           </div>
-          <button onClick={() => { setStep('upload'); setProdutos([]); setFileName('') }} className="text-slate-400 hover:text-slate-600">
+          <button onClick={resetar} className="text-slate-400 hover:text-slate-600">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 border-b border-slate-100">
-                <tr>
-                  {['Nome', 'Cód. Barras', 'Custo', 'Venda', 'Estoque'].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-slate-500 font-semibold uppercase tracking-wide whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {preview.map((p, i) => (
-                  <tr key={i} className="hover:bg-slate-50">
-                    <td className="px-4 py-2.5 text-slate-800 font-medium max-w-[200px] truncate">{p.nome}</td>
-                    <td className="px-4 py-2.5 text-slate-500 font-mono">{p.codigo_barras || '—'}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{fmt(p.preco_custo)}</td>
-                    <td className="px-4 py-2.5 text-slate-700 font-semibold">{fmt(p.preco_venda)}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{p.estoque}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {produtos.length === 0 ? (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center">
+            <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-amber-800">Nenhum produto encontrado</p>
+            <p className="text-xs text-amber-600 mt-1">
+              {fileType === 'pdf' ? 'O PDF pode ter um formato diferente do esperado. Tente exportar como CSV.' : 'Verifique se o arquivo está no formato correto.'}
+            </p>
+            <button onClick={resetar} className="mt-3 text-xs text-amber-700 underline">Tentar outro arquivo</button>
           </div>
-          {produtos.length > 10 && (
-            <div className="px-4 py-3 border-t border-slate-50 text-xs text-slate-400 text-center">
-              +{(produtos.length - 10).toLocaleString('pt-BR')} produto(s) não exibido(s)
+        ) : (
+          <>
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      {['Nome', 'Cód. Barras', 'Custo', 'Venda', 'Estoque'].map((h) => (
+                        <th key={h} className="text-left px-4 py-3 text-slate-500 font-semibold uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {preview.map((p, i) => (
+                      <tr key={i} className="hover:bg-slate-50">
+                        <td className="px-4 py-2.5 text-slate-800 font-medium max-w-[200px] truncate">{p.nome}</td>
+                        <td className="px-4 py-2.5 text-slate-500 font-mono">{p.codigo_barras || '—'}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{p.preco_custo > 0 ? fmt(p.preco_custo) : '—'}</td>
+                        <td className="px-4 py-2.5 text-slate-700 font-semibold">{fmt(p.preco)}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{p.estoque}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {produtos.length > 10 && (
+                <div className="px-4 py-3 border-t border-slate-50 text-xs text-slate-400 text-center">
+                  +{(produtos.length - 10).toLocaleString('pt-BR')} produto(s) não exibido(s)
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <div className="flex gap-3">
-          <button
-            onClick={() => { setStep('upload'); setProdutos([]); setFileName('') }}
-            className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-2xl text-sm font-medium hover:bg-slate-50 transition"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={iniciarImportacao}
-            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl text-sm font-semibold transition"
-          >
-            Importar {produtos.length.toLocaleString('pt-BR')} produtos
-          </button>
-        </div>
+            <div className="flex gap-3">
+              <button onClick={resetar} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-2xl text-sm font-medium hover:bg-slate-50 transition">
+                Cancelar
+              </button>
+              <button onClick={iniciarImportacao} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl text-sm font-semibold transition">
+                Importar {produtos.length.toLocaleString('pt-BR')} produtos
+              </button>
+            </div>
+          </>
+        )}
       </div>
     )
   }
@@ -279,28 +421,21 @@ export default function ImportarPage() {
         </div>
         <div className="w-full max-w-sm">
           <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-            <div
-              className="bg-indigo-600 h-3 rounded-full transition-all duration-300"
-              style={{ width: `${pct}%` }}
-            />
+            <div className="bg-indigo-600 h-3 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
           </div>
           <p className="text-xs text-slate-400 text-right mt-1">{pct}%</p>
         </div>
-        {erros > 0 && (
-          <p className="text-xs text-amber-600">{erros} erro(s) ao importar</p>
-        )}
+        {erros > 0 && <p className="text-xs text-amber-600">{erros} erro(s) ao importar</p>}
       </div>
     )
   }
 
-  // done
   return (
     <div className="p-4 md:p-6 flex flex-col items-center justify-center min-h-[60vh] space-y-5">
       <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${erros === 0 ? 'bg-emerald-50' : 'bg-amber-50'}`}>
         {erros === 0
           ? <CheckCircle className="w-8 h-8 text-emerald-500" />
-          : <AlertCircle className="w-8 h-8 text-amber-500" />
-        }
+          : <AlertCircle className="w-8 h-8 text-amber-500" />}
       </div>
       <div className="text-center space-y-1">
         <p className="font-bold text-slate-900 text-xl">Importação concluída</p>
@@ -308,10 +443,7 @@ export default function ImportarPage() {
         {erros > 0 && <p className="text-amber-600 text-sm">{erros} produto(s) com erro</p>}
       </div>
       <div className="flex gap-3 w-full max-w-xs">
-        <button
-          onClick={() => { setStep('upload'); setProdutos([]); setFileName(''); setProgresso(0) }}
-          className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-2xl text-sm font-medium hover:bg-slate-50 transition"
-        >
+        <button onClick={resetar} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-2xl text-sm font-medium hover:bg-slate-50 transition">
           Nova importação
         </button>
         <a href="/produtos" className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl text-sm font-semibold transition text-center">
