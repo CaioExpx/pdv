@@ -28,6 +28,9 @@ const grupos = [
   },
 ]
 
+const VERSION = '1.0.0'
+const BUILD = '2026.04.23'
+
 export default function Navigation() {
   const pathname = usePathname()
   const router = useRouter()
@@ -84,14 +87,15 @@ export default function Navigation() {
       </nav>
 
       {/* Logout */}
-      <div className="p-3 border-t border-slate-800">
+      <div className="p-3 border-t border-slate-800 flex items-center justify-between">
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
         >
           <LogOut className="w-4 h-4" />
           Sair
         </button>
+        <span className="text-xs text-slate-600 font-mono">v{VERSION}</span>
       </div>
     </aside>
   )
