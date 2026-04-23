@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Upload, FileText, CheckCircle, AlertCircle, Loader2, X, FileSearch } from 'lucide-react'
 
 type Step = 'upload' | 'preview' | 'importing' | 'done'
+type ErroDetalhe = { mensagem: string; produto: string } | null
 
 interface ProdutoRow {
   nome: string
@@ -44,7 +45,9 @@ function processCSV(text: string): ProdutoRow[] {
   const lines = text.split(/\r?\n/).filter((l) => l.trim())
   if (lines.length < 2) return []
 
+  const vistos = new Set<string>()
   const rows: ProdutoRow[] = []
+
   for (let i = 1; i < lines.length; i++) {
     const col = parseCSVLine(lines[i])
     if (col.length < 4) continue
@@ -60,6 +63,11 @@ function processCSV(text: string): ProdutoRow[] {
         : codigoInterno && codigoInterno.length > 4
           ? codigoInterno
           : ''
+
+    // Deduplicar por código de barras
+    const chave = barcode || `nome::${nome}`
+    if (vistos.has(chave)) continue
+    vistos.add(chave)
 
     rows.push({
       nome,
@@ -151,6 +159,7 @@ export default function ImportarPage() {
   const [total, setTotal] = useState(0)
   const [erros, setErros] = useState(0)
   const [importados, setImportados] = useState(0)
+  const [erroDetalhe, setErroDetalhe] = useState<ErroDetalhe>(null)
   const [dragging, setDragging] = useState(false)
   const [processando, setProcessando] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -207,10 +216,12 @@ export default function ImportarPage() {
     setProgresso(0)
     setErros(0)
     setImportados(0)
+    setErroDetalhe(null)
 
-    const BATCH = 50
+    const BATCH = 100
     let importadosCount = 0
     let errosCount = 0
+    let primeiroErro: ErroDetalhe = null
 
     for (let i = 0; i < produtos.length; i += BATCH) {
       const lote = produtos.slice(i, i + BATCH).map((p) => ({
@@ -224,44 +235,27 @@ export default function ImportarPage() {
         ativo: true,
       }))
 
-      // Separate products with and without barcode
-      const comBarcode = lote.filter((p) => p.codigo_barras)
-      const semBarcode = lote.filter((p) => !p.codigo_barras)
+      const { error } = await supabase.from('produtos').insert(lote)
 
-      // Upsert products with barcode (update if barcode already exists)
-      if (comBarcode.length > 0) {
-        const { error } = await supabase.from('produtos').upsert(comBarcode, {
-          onConflict: 'codigo_barras',
-          ignoreDuplicates: false,
-        })
-        if (error) {
-          for (const prod of comBarcode) {
-            const { error: e2 } = await supabase.from('produtos').insert([prod])
-            if (e2) errosCount++
-            else importadosCount++
+      if (error) {
+        // Fallback: inserir um a um para salvar o máximo possível
+        for (const prod of lote) {
+          const { error: e2 } = await supabase.from('produtos').insert([prod])
+          if (e2) {
+            errosCount++
+            if (!primeiroErro) primeiroErro = { mensagem: e2.message, produto: prod.nome }
+          } else {
+            importadosCount++
           }
-        } else {
-          importadosCount += comBarcode.length
         }
-      }
-
-      // Insert products without barcode directly
-      if (semBarcode.length > 0) {
-        const { error } = await supabase.from('produtos').insert(semBarcode)
-        if (error) {
-          for (const prod of semBarcode) {
-            const { error: e2 } = await supabase.from('produtos').insert([prod])
-            if (e2) errosCount++
-            else importadosCount++
-          }
-        } else {
-          importadosCount += semBarcode.length
-        }
+      } else {
+        importadosCount += lote.length
       }
 
       setProgresso(Math.min(i + BATCH, produtos.length))
       setImportados(importadosCount)
       setErros(errosCount)
+      if (primeiroErro) setErroDetalhe(primeiroErro)
     }
 
     setStep('done')
@@ -274,6 +268,7 @@ export default function ImportarPage() {
     setProgresso(0)
     setImportados(0)
     setErros(0)
+    setErroDetalhe(null)
   }
 
   const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -441,6 +436,13 @@ export default function ImportarPage() {
         <p className="font-bold text-slate-900 text-xl">Importação concluída</p>
         <p className="text-slate-500 text-sm">{importados.toLocaleString('pt-BR')} produto(s) importado(s) com sucesso</p>
         {erros > 0 && <p className="text-amber-600 text-sm">{erros} produto(s) com erro</p>}
+        {erroDetalhe && (
+          <div className="mt-2 bg-red-50 border border-red-200 rounded-xl p-3 text-left max-w-xs mx-auto">
+            <p className="text-xs font-semibold text-red-700 mb-1">Motivo do erro:</p>
+            <p className="text-xs text-red-600 font-mono break-all">{erroDetalhe.mensagem}</p>
+            <p className="text-xs text-red-400 mt-1">Ex: {erroDetalhe.produto}</p>
+          </div>
+        )}
       </div>
       <div className="flex gap-3 w-full max-w-xs">
         <button onClick={resetar} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-2xl text-sm font-medium hover:bg-slate-50 transition">
