@@ -12,8 +12,6 @@ const items = [
   { href: '/vendas', label: 'Vendas', icon: FileText },
 ]
 
-const VERSION = '1.0.0'
-
 export default function BottomNav() {
   const pathname = usePathname()
   const router = useRouter()
@@ -51,7 +49,7 @@ export default function BottomNav() {
           <div className="p-1.5">
             <LogOut className="w-5 h-5" />
           </div>
-          <span className="text-slate-400">v{VERSION}</span>
+          <span>Sair</span>
         </button>
       </div>
     </nav>
