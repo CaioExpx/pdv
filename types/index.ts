@@ -5,16 +5,32 @@ export type Categoria = {
   created_at: string
 }
 
+export type Fornecedor = {
+  id: string
+  nome: string
+  cnpj: string | null
+  telefone: string | null
+  email: string | null
+  contato: string | null
+  observacao: string | null
+  created_at: string
+}
+
 export type Produto = {
   id: string
   nome: string
   preco: number
+  preco_custo: number | null
   estoque: number
   estoque_minimo: number
   categoria_id: string | null
   categoria?: Categoria
+  fornecedor_id: string | null
+  fornecedor?: Fornecedor
   codigo_barras: string | null
   unidade: string
+  tamanho: string | null
+  cor: string | null
   ativo: boolean
   created_at: string
 }
@@ -25,6 +41,8 @@ export type Cliente = {
   email: string | null
   telefone: string | null
   cpf: string | null
+  endereco: string | null
+  observacao: string | null
   created_at: string
 }
 
@@ -38,7 +56,16 @@ export type Caixa = {
   status: 'aberto' | 'fechado'
 }
 
-export type FormaPagamento = 'dinheiro' | 'credito' | 'debito' | 'pix' | 'voucher'
+export type FormaPagamento = 'dinheiro' | 'credito' | 'debito' | 'pix' | 'fiado'
+
+export type PagamentoVenda = {
+  id: string
+  venda_id: string
+  forma_pagamento: FormaPagamento
+  valor: number
+  valor_recebido: number | null
+  troco: number
+}
 
 export type Venda = {
   id: string
@@ -48,18 +75,20 @@ export type Venda = {
   subtotal: number
   desconto: number
   total: number
-  forma_pagamento: FormaPagamento
+  forma_pagamento: string
   valor_recebido: number | null
   troco: number
   status: 'concluida' | 'cancelada'
+  observacao: string | null
   created_at: string
   itens?: ItemVenda[]
+  pagamentos?: PagamentoVenda[]
 }
 
 export type ItemVenda = {
   id: string
   venda_id: string
-  produto_id: string
+  produto_id: string | null
   produto_nome: string
   quantidade: number
   preco_unitario: number
@@ -72,9 +101,31 @@ export type ItemCarrinho = {
   subtotal: number
 }
 
-export type ResumoVendas = {
-  total_vendas: number
-  ticket_medio: number
-  quantidade_vendas: number
-  vendas_por_pagamento: Record<FormaPagamento, number>
+export type FiadoRecord = {
+  id: string
+  cliente_id: string
+  cliente?: Cliente
+  venda_id: string | null
+  valor_original: number
+  valor_pago: number
+  valor_restante: number
+  status: 'aberto' | 'pago_parcial' | 'quitado'
+  observacao: string | null
+  created_at: string
+  pagamentos?: PagamentoFiado[]
+}
+
+export type PagamentoFiado = {
+  id: string
+  fiado_id: string
+  valor: number
+  forma_pagamento: string
+  observacao: string | null
+  created_at: string
+}
+
+export type EntradaPagamento = {
+  metodo: FormaPagamento
+  valor: string
+  valorRecebido?: string
 }
