@@ -213,49 +213,18 @@ export default function ImportarPage() {
   async function iniciarImportacao() {
     setStep('importing')
     setTotal(produtos.length)
-    setProgresso(0)
+    setProgresso(produtos.length)
     setErros(0)
     setImportados(0)
     setErroDetalhe(null)
 
-    const BATCH = 100
-    let importadosCount = 0
-    let errosCount = 0
-    let primeiroErro: ErroDetalhe = null
+    const { data, error } = await supabase.rpc('importar_produtos', { p_produtos: produtos })
 
-    for (let i = 0; i < produtos.length; i += BATCH) {
-      const lote = produtos.slice(i, i + BATCH).map((p) => ({
-        nome: p.nome,
-        codigo_barras: p.codigo_barras || null,
-        preco_custo: p.preco_custo || null,
-        preco: p.preco,
-        estoque: p.estoque,
-        estoque_minimo: p.estoque_minimo,
-        unidade: 'UN',
-        ativo: true,
-      }))
-
-      const { error } = await supabase.from('produtos').insert(lote)
-
-      if (error) {
-        // Fallback: inserir um a um para salvar o máximo possível
-        for (const prod of lote) {
-          const { error: e2 } = await supabase.from('produtos').insert([prod])
-          if (e2) {
-            errosCount++
-            if (!primeiroErro) primeiroErro = { mensagem: e2.message, produto: prod.nome }
-          } else {
-            importadosCount++
-          }
-        }
-      } else {
-        importadosCount += lote.length
-      }
-
-      setProgresso(Math.min(i + BATCH, produtos.length))
-      setImportados(importadosCount)
-      setErros(errosCount)
-      if (primeiroErro) setErroDetalhe(primeiroErro)
+    if (error) {
+      setErros(produtos.length)
+      setErroDetalhe({ mensagem: error.message, produto: 'RPC call failed' })
+    } else {
+      setImportados(data || produtos.length)
     }
 
     setStep('done')
