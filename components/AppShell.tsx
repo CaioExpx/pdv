@@ -34,8 +34,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <BottomNav />
 
       {/* Versão do app */}
-      <div className="fixed bottom-2 right-2 text-[10px] text-slate-300 md:text-slate-400 z-0">
-        v{VERSION} · {BUILD}
+      <div 
+        className="fixed bottom-1 right-1 text-xs text-slate-400 select-none" 
+        style={{ fontFamily: 'monospace' }}
+      >
+        🧱 v{VERSION} · {BUILD}
       </div>
     </>
   )
