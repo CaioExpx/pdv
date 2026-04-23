@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Pencil, Trash2, X, Check, ScanLine, Package, Search } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Check, ScanLine, Package, Search, Camera } from 'lucide-react'
+import CameraScanner from '@/components/CameraScanner'
 import type { Produto, Categoria, Fornecedor } from '@/types'
 
 type Form = {
@@ -30,6 +31,7 @@ export default function ProdutosPage() {
   const [busca, setBusca] = useState('')
   const [filtroCategoria, setFiltroCategoria] = useState('')
   const [scanMode, setScanMode] = useState(false)
+  const [cameraAberta, setCameraAberta] = useState(false)
   const barcodeBuffer = useRef('')
   const barcodeTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const supabase = createClient()
@@ -47,23 +49,17 @@ export default function ProdutosPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Scanner para preencher código de barras no modal
   useEffect(() => {
     if (!scanMode) return
     let lastTime = 0
-
     function onKeyDown(e: KeyboardEvent) {
       const now = Date.now()
       if (now - lastTime > 150 && barcodeBuffer.current.length > 0) barcodeBuffer.current = ''
       lastTime = now
-
       if (e.key === 'Enter') {
         const code = barcodeBuffer.current.trim()
         barcodeBuffer.current = ''
-        if (code.length >= 4) {
-          setForm((prev) => ({ ...prev, codigo_barras: code }))
-          setScanMode(false)
-        }
+        if (code.length >= 4) { setForm((prev) => ({ ...prev, codigo_barras: code })); setScanMode(false) }
         return
       }
       if (e.key.length === 1 && !e.ctrlKey) {
@@ -72,7 +68,6 @@ export default function ProdutosPage() {
         barcodeTimer.current = setTimeout(() => { barcodeBuffer.current = '' }, 500)
       }
     }
-
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [scanMode])
@@ -117,26 +112,28 @@ export default function ProdutosPage() {
   })
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Produtos</h1>
-          <p className="text-slate-500 text-sm">{produtos.length} produto(s)</p>
+          <h1 className="text-lg md:text-xl font-bold text-slate-900">Produtos</h1>
+          <p className="text-slate-500 text-xs md:text-sm">{produtos.length} produto(s)</p>
         </div>
         <button
           onClick={abrirCriar}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition"
+          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3 md:px-4 py-2 rounded-xl text-sm font-semibold transition"
         >
-          <Plus className="w-4 h-4" /> Novo Produto
+          <Plus className="w-4 h-4" />
+          <span className="hidden sm:inline">Novo Produto</span>
+          <span className="sm:hidden">Novo</span>
         </button>
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-3 flex-wrap">
-        <div className="relative">
+      <div className="flex gap-2 md:gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
           <input
-            className="pl-8 pr-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 w-56 bg-white"
+            className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
             placeholder="Buscar..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
@@ -147,13 +144,66 @@ export default function ProdutosPage() {
           value={filtroCategoria}
           onChange={(e) => setFiltroCategoria(e.target.value)}
         >
-          <option value="">Todas categorias</option>
+          <option value="">Todas</option>
           {categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
         </select>
       </div>
 
-      {/* Tabela */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      {/* Mobile: card list */}
+      <div className="md:hidden space-y-2">
+        {filtrados.map((p) => (
+          <div key={p.id} className="bg-white rounded-2xl border border-slate-100 p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-semibold text-slate-900 text-sm">{p.nome}</p>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.ativo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                    {p.ativo ? 'Ativo' : 'Inativo'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  {p.codigo_barras && <span className="text-xs text-slate-400 font-mono">{p.codigo_barras}</span>}
+                  {p.tamanho && <span className="text-xs bg-slate-100 text-slate-500 px-1.5 rounded">Tam {p.tamanho}</span>}
+                  {p.cor && <span className="text-xs bg-slate-100 text-slate-500 px-1.5 rounded">{p.cor}</span>}
+                </div>
+                <div className="flex items-center gap-3 mt-2">
+                  <span className="text-sm font-bold text-indigo-600">{fmt(p.preco)}</span>
+                  <span className={`text-xs font-semibold ${p.estoque === 0 ? 'text-red-600' : p.estoque <= p.estoque_minimo ? 'text-amber-600' : 'text-slate-600'}`}>
+                    Estoque: {p.estoque} {p.unidade}
+                  </span>
+                </div>
+                {(p.categoria || p.fornecedor) && (
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    {p.categoria && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: `${p.categoria.cor}20`, color: p.categoria.cor }}>
+                        {p.categoria.nome}
+                      </span>
+                    )}
+                    {p.fornecedor && <span className="text-xs text-slate-400">{p.fornecedor.nome}</span>}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-2">
+                <button onClick={() => abrirEditar(p)} className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 hover:text-indigo-600 transition">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={async () => { if (confirm('Desativar produto?')) { await supabase.from('produtos').update({ ativo: false }).eq('id', p.id); load() } }} className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 hover:text-red-500 transition">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {filtrados.length === 0 && (
+          <div className="flex flex-col items-center py-12 text-slate-400">
+            <Package className="w-8 h-8 mb-2 opacity-30" />
+            <p className="text-sm">Nenhum produto</p>
+          </div>
+        )}
+      </div>
+
+      {/* Desktop: table */}
+      <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -222,22 +272,20 @@ export default function ProdutosPage() {
 
       {/* Modal */}
       {modal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 sticky top-0 bg-white">
+        <div className="fixed inset-0 bg-black/40 flex items-end md:items-center justify-center z-50 p-0 md:p-4">
+          <div className="bg-white rounded-t-3xl md:rounded-2xl shadow-2xl w-full md:max-w-lg max-h-[95vh] md:max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 sticky top-0 bg-white z-10">
               <h2 className="font-semibold text-slate-900">{modal === 'criar' ? 'Novo Produto' : 'Editar Produto'}</h2>
               <button onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600 transition">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-5 space-y-4">
-              {/* Nome */}
               <div>
                 <label className="text-xs font-medium text-slate-700 mb-1.5 block">Nome *</label>
                 <input className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Nome do produto" />
               </div>
 
-              {/* Preço + Custo */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-slate-700 mb-1.5 block">Preço Venda *</label>
@@ -249,7 +297,6 @@ export default function ProdutosPage() {
                 </div>
               </div>
 
-              {/* Estoque */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs font-medium text-slate-700 mb-1.5 block">Estoque</label>
@@ -267,7 +314,6 @@ export default function ProdutosPage() {
                 </div>
               </div>
 
-              {/* Tamanho + Cor */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-slate-700 mb-1.5 block">Tamanho</label>
@@ -282,7 +328,6 @@ export default function ProdutosPage() {
                 </div>
               </div>
 
-              {/* Categoria + Fornecedor */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-slate-700 mb-1.5 block">Categoria</label>
@@ -310,21 +355,32 @@ export default function ProdutosPage() {
                     onChange={(e) => setForm({ ...form, codigo_barras: e.target.value })}
                     placeholder="EAN / código"
                   />
+                  {/* USB scanner button */}
                   <button
                     type="button"
                     onClick={() => setScanMode(true)}
                     className={`px-3 py-2 rounded-xl border text-sm font-medium transition flex items-center gap-1.5 ${
                       scanMode ? 'bg-emerald-600 border-emerald-600 text-white animate-pulse' : 'border-slate-200 text-slate-600 hover:border-indigo-300'
                     }`}
+                    title="Scanner USB"
                   >
                     <ScanLine className="w-4 h-4" />
-                    {scanMode ? 'Aguardando...' : 'Scan'}
+                    <span className="hidden sm:inline">{scanMode ? 'Aguardando...' : 'USB'}</span>
+                  </button>
+                  {/* Camera scanner button */}
+                  <button
+                    type="button"
+                    onClick={() => setCameraAberta(true)}
+                    className="px-3 py-2 rounded-xl border border-slate-200 text-slate-600 hover:border-indigo-300 text-sm font-medium transition flex items-center gap-1.5"
+                    title="Câmera"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span className="hidden sm:inline">Câmera</span>
                   </button>
                 </div>
                 {scanMode && <p className="text-xs text-emerald-600 mt-1">Passe o scanner no código de barras agora...</p>}
               </div>
 
-              {/* Toggle ativo */}
               <label className="flex items-center gap-2.5 cursor-pointer" onClick={() => setForm({ ...form, ativo: !form.ativo })}>
                 <div className={`w-10 h-5 rounded-full transition-colors relative ${form.ativo ? 'bg-indigo-600' : 'bg-slate-300'}`}>
                   <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.ativo ? 'translate-x-5' : 'translate-x-0.5'}`} />
@@ -348,6 +404,17 @@ export default function ProdutosPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Camera scanner overlay */}
+      {cameraAberta && (
+        <CameraScanner
+          onScan={(code) => {
+            setForm((prev) => ({ ...prev, codigo_barras: code }))
+            setCameraAberta(false)
+          }}
+          onClose={() => setCameraAberta(false)}
+        />
       )}
     </div>
   )

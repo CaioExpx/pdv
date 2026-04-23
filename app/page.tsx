@@ -66,7 +66,7 @@ export default function Dashboard() {
   ]
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div>
         <h1 className="text-xl font-bold text-slate-900">Dashboard</h1>
         <p className="text-slate-500 text-sm mt-0.5">

@@ -78,7 +78,7 @@ export default function FiadoPage() {
   const totalGeral = clientesFiado.reduce((a, c) => a + c.total_aberto, 0)
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Fiado</h1>
@@ -171,8 +171,8 @@ export default function FiadoPage() {
 
       {/* Modal pagamento fiado */}
       {modalPagamento && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        <div className="fixed inset-0 bg-black/40 flex items-end md:items-center justify-center z-50 p-0 md:p-4">
+          <div className="bg-white rounded-t-3xl md:rounded-2xl shadow-2xl w-full md:max-w-sm">
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
               <h2 className="font-semibold text-slate-900">Registrar Pagamento</h2>
               <button onClick={() => setModalPagamento(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>

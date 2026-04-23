@@ -2,6 +2,8 @@
 
 import { usePathname } from 'next/navigation'
 import Navigation from './Navigation'
+import BottomNav from './BottomNav'
+import MobileHeader from './MobileHeader'
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -11,10 +13,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
+      {/* Desktop: sidebar */}
       <Navigation />
-      <main className="ml-60 min-h-screen bg-slate-50">
+
+      {/* Mobile: top header */}
+      <MobileHeader />
+
+      {/* Conteúdo principal */}
+      <main className="
+        md:ml-60 min-h-screen bg-slate-50
+        pb-20 md:pb-0
+      ">
         {children}
       </main>
+
+      {/* Mobile: bottom nav */}
+      <BottomNav />
     </>
   )
 }

@@ -53,7 +53,7 @@ export default function VendasPage() {
   const totalFiltrado = filtradas.filter((v) => v.status === 'concluida').reduce((a, v) => a + Number(v.total), 0)
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Histórico de Vendas</h1>
@@ -65,11 +65,11 @@ export default function VendasPage() {
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-3 flex-wrap items-center">
-        <div className="relative">
+      <div className="flex gap-2 md:gap-3 flex-wrap items-center">
+        <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
           <input
-            className="pl-8 pr-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white w-52"
+            className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
             placeholder="Buscar venda ou cliente..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}

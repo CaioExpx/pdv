@@ -3,3 +3,31 @@
 body {
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Safe area para iPhone (notch / home bar) */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Animação da linha de scan */
+@keyframes scan-line {
+  0%   { top: 8px; opacity: 1; }
+  90%  { top: calc(100% - 8px); opacity: 1; }
+  100% { top: calc(100% - 8px); opacity: 0; }
+}
+
+.animate-scan-line {
+  animation: scan-line 1.8s ease-in-out infinite;
+  position: absolute;
+}
+
+/* Padding top para mobile (compensa o header fixo) */
+@media (max-width: 767px) {
+  main {
+    padding-top: 3.5rem; /* 56px = h-14 do MobileHeader */
+  }
+}
